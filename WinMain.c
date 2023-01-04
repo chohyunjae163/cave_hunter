@@ -16,12 +16,46 @@ typedef int64_t s64;
 #define internal static
 #define local_persist static
 #define global_variable static
-
 global_variable int Running;
 global_variable BITMAPINFO BitmapInfo;
 global_variable void *BitmapMemory; //a block memory for the purpose of drawing pixels into.
 global_variable int BitmapWidth;
 global_variable int BitmapHeight;
+global_variable int BytesPerPixel;
+
+
+internal void
+RenderWeirdGradient(int XOffset,int YOffset)
+{
+    int Pitch = BitmapWidth * BytesPerPixel;
+    u8 *Row = (u8 *)BitmapMemory;
+    for(int Y = 0;
+        Y < BitmapHeight;
+        ++Y)
+    {
+        u8*Pixel = (u8 *)Row;
+        for(int X = 0;
+            X < BitmapWidth;
+            ++X)
+        {
+            //pixel in memory: BB GG RR XX ?
+            
+            //write color to pixel
+            *Pixel = X; // write to byte 0
+            ++Pixel;
+            
+            *Pixel = Y; // write to byte 1 
+            ++Pixel;
+            
+            *Pixel = 0; // write to byte 2
+            ++Pixel;
+            
+            *Pixel = 0; // write to byte 3, pad?
+            ++Pixel;
+        }
+        Row +=Pitch;
+    }
+}
 
 internal void
 Win32ResizeDIBSection(int Width, int Height)
@@ -40,26 +74,10 @@ Win32ResizeDIBSection(int Width, int Height)
         VirtualFree(BitmapMemory,0,MEM_RELEASE);
     }
     
-    int BytesPerPixel = 4;
+    BytesPerPixel = 4;
     int BitmapMemorySize = BytesPerPixel * (BitmapWidth * BitmapHeight);
     BitmapMemory = VirtualAlloc(0,BitmapMemorySize,MEM_RESERVE|MEM_COMMIT,PAGE_READWRITE);
-    int Pitch = Width * BytesPerPixel;
-    u8 *Row = (u8 *)BitmapMemory;
-    for(int Y = 0;
-        Y < BitmapHeight;
-        ++Y)
-    {
-        u32 *Pixel = (u32 *)Row;
-        for(int X = 0;
-            X < BitmapWidth;
-            ++X)
-        {
-            //write color to pixel
-            ++Pixel;
-        }
-        Row +=Pitch;
-    }
-    
+    RenderWeirdGradient(0,0);
 }
 
 internal void
