@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <stdint.h>
 #include <xinput.h>
+#include <dsound.h>
 
 //unsigned integers
 typedef uint8_t u8;
@@ -18,6 +19,9 @@ typedef s32 b32;
 #define internal static
 #define local_persist static
 #define global_variable static
+#define KeyMessageWasDownBit (1 << 30)
+#define KeyMessageIsDownBit (1 << 31)
+
 
 typedef struct win32_offscreen_buffer
 {
@@ -58,6 +62,64 @@ X_INPUT_SET_STATE(XInputSetStateStub)
 }
 global_variable x_input_set_state* XInputSetState_ = XInputSetStateStub;
 #define XInputSetState XInputSetState_
+
+#define DIRECT_SOUND_CREATE(name) HRESULT WINAPI name(LPCGUID pcGuidDevice, LPDIRECTSOUND *ppDS, LPUNKNOWN pUnkOuter);
+typedef DIRECT_SOUND_CREATE(direct_sound_create);
+
+internal void Win32InitDSound(HWND Window, s32 SamplesPerSecond, s32 BufferSize)
+{
+    //load the library
+    HMODULE DSoundLibrary = LoadLibraryA("dsound.dll");
+    if(DSoundLibrary)
+    {
+        //create a directsound object
+        direct_sound_create * DirectSoundCreate = (direct_sound_create*)GetProcAddress(DSoundLibrary,"DirectSoundCreate");
+        IDirectSound* DirectSound;
+        if(DirectSoundCreate && SUCCEEDED(DirectSoundCreate(0,&DirectSound,0)))
+        {
+            WAVEFORMATEX WaveFormat = { 0 };
+            WaveFormat.wFormatTag = WAVE_FORMAT_PCM;
+            WaveFormat.nChannels = 2;
+            WaveFormat.nSamplesPerSec = SamplesPerSecond;
+            WaveFormat.wBitsPerSample = 16;
+            WaveFormat.nBlockAlign = (WaveFormat.nChannels * WaveFormat.wBitsPerSample) / 8; // 4 under current settings
+            WaveFormat.nAvgBytesPerSec = WaveFormat.nSamplesPerSec * WaveFormat.nBlockAlign;
+            
+            //set cooperative level
+            
+            if(SUCCEEDED(IDirectSound_SetCooperativeLevel( DirectSound,Window,DSSCL_PRIORITY )))
+            {
+                //create a primary buffer
+                DSBUFFERDESC BufferDescription = { 0 }; 
+                BufferDescription.dwSize = sizeof(BufferDescription);
+                BufferDescription.dwFlags = DSBCAPS_PRIMARYBUFFER;
+                IDirectSoundBuffer *PrimaryBuffer; 
+                
+                if(SUCCEEDED(IDirectSound_CreateSoundBuffer( DirectSound,&BufferDescription,&PrimaryBuffer,0 )))
+                {
+                    // Set up primary buffer
+                    if(SUCCEEDED(IDirectSoundBuffer_SetFormat( PrimaryBuffer,&WaveFormat )))
+                    {
+                        
+                    }
+                }
+                
+                //create a secondary buffer
+                BufferDescription.dwSize = sizeof(BufferDescription);
+                BufferDescription.dwBufferBytes = BufferSize;
+                BufferDescription.lpwfxFormat = &WaveFormat;
+                
+                IDirectSoundBuffer * SecondaryBuffer;
+                if(SUCCEEDED(IDirectSound_CreateSoundBuffer(DirectSound,&BufferDescription,&SecondaryBuffer,0 )))
+                {
+                    
+                };
+            }
+        }
+    }
+}
+
+
 
 internal void
 Win32LoadXInput()
@@ -201,8 +263,8 @@ Win32MainWindowCallback(HWND Window,
         case WM_KEYUP:
         {
             // handle input
-            b32 IsDown = ((LParam & (1 << 31)) == 0);
-            b32 WasDown = ((LParam & (1 << 30)) != 0);
+            b32 IsDown = ((LParam & KeyMessageIsDownBit) == 0);
+            b32 WasDown = ((LParam & KeyMessageWasDownBit) != 0);
             u32 VKCode = WParam;
             if(IsDown != WasDown)
             {
@@ -308,9 +370,15 @@ WinMain(
             //controller input
             Win32LoadXInput();
             Win32ResizeDIBSection(&GlobalBackbuffer,1280,720);
+            
             // Window creation successful!
             int XOffset = 0;
             int YOffset = 0;
+            
+            int SamplesPerSecond = 48000;
+            int BytesPerSample = sizeof(s16) * 2;
+            int SecondaryBufferSize = 2 * SamplesPerSecond * BytesPerSample;
+            Win32InitDSound(Window, SamplesPerSecond,SecondaryBufferSize);
             // NOTE(casey): Since we specified CS_OWNDC,we can just
             // get one device context and use it forever because we are 
             // not sharing it with anyone.
